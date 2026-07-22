@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>L2 Learning Task - Transitional Space Experiment</title>
+    <!-- xAPI 문장 생성을 도와주는 공식 라이브러리 불러오기 -->
+    <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/crypto-js.js"></script>
+    <style>
+        body { font-family: 'Arial', sans-serif; max-width: 700px; margin: 40px auto; padding: 20px; line-height: 1.6; background: #f9f9f9; }
+        .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        h2 { color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .l2-text { background: #eef2f7; padding: 15px; border-left: 5px solid #3498db; font-size: 1.05em; margin: 15px 0; }
+        button { background: #3498db; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-size: 1em; }
+        button:hover { background: #2980b9; }
+        select, input { padding: 8px; margin: 5px 0 15px 0; width: 100%; box-sizing: border-box; }
+        .status { color: #27ae60; font-weight: bold; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>1. Participant & Spatial Context Setup</h2>
+    <label>Student Email / ID:</label>
+    <input type="email" id="studentEmail" placeholder="student@snu.ac.kr" value="student01@snu.ac.kr">
+    
+    <label>Current Space Condition (공간 조건 선택):</label>
+    <select id="spaceType">
+        <option value="Classroom">Classroom (통제 공간)</option>
+        <option value="Lounge">Lounge/Cafe (휴게 공간)</option>
+        <option value="Transitional_Alcove" selected>Transitional Space - Alcove (전이 공간)</option>
+    </select>
+</div>
+
+<div class="card">
+    <h2>2. L2 EFL Reading Task</h2>
+    <p>Read the following short passage carefully and click the button when finished.</p>
+    
+    <div class="l2-text">
+        "Transitional spaces in architecture, such as corridors and alcoves, offer unique spatial affordances. In English as a Foreign Language (EFL) contexts, these informal in-between zones can significantly lower learners' affective filters, encouraging low-stakes interaction and spontaneous self-regulated learning."
+    </div>
+
+    <button onclick="sendReadingStatement()">I finished reading (읽기 완료)</button>
+    <div id="status1" class="status"></div>
+</div>
+
+<div class="card">
+    <h2>3. Self-Regulated Learning (SRL) Self-Report</h2>
+    <p>How comfortable did you feel reading in this space? (1: Very Anxious ~ 5: Very Comfortable)</p>
+    <select id="affectiveScore">
+        <option value="1">1 - Very High Affective Filter (불안함)</option>
+        <option value="2">2 - High</option>
+        <option value="3">3 - Moderate</option>
+        <option value="4" selected>4 - Low</option>
+        <option value="5">5 - Very Low Affective Filter (매우 편안함)</option>
+    </select>
+    <br>
+    <button onclick="sendSurveyStatement()">Submit Survey (설문 제출)</button>
+    <div id="status2" class="status"></div>
+</div>
+
+<script>
+  
+    // -------------------------------------------------------------
+    // [설정 구역] Veracity LRS 계정 정보를 여기에 입력합니다.
+    // -------------------------------------------------------------
+    const LRS_ENDPOINT = "https://l2-spatial-study.lrs.io/xapi/"; // LRS Endpoint URL
+    const LRS_KEY = "150adff5-e211-4fb1-a2b1-47af48a75902";       // Key / Username
+    const LRS_SECRET = "377989c4-4b5e-4b31-a553-15f6604e5d92";    // Secret / Password
+
+    let startTime = Date.now(); // 페이지 접속 시간 기록
+
+    // xAPI 전송 공통 함수
+    function sendXAPI(statement, statusElementId) {
+        const auth = "Basic " + btoa(LRS_KEY + ":" + LRS_SECRET);
+        
+        fetch(LRS_ENDPOINT + "statements", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Experience-API-Version": "1.0.3",
+                "Authorization": auth
+            },
+            body: JSON.stringify(statement)
+        })
+        .then(response => {
+            if(response.ok) {
+                document.getElementById(statusElementId).innerText = "✅ xAPI Statement successfully sent to LRS!";
+            } else {
+                document.getElementById(statusElementId).innerText = "❌ Failed to send (Check LRS Credentials).";
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            document.getElementById(statusElementId).innerText = "❌ Network Error.";
+        });
+    }
+
+    // Task 1: L2 읽기 완료 및 머무름 시간(Dwell Time) 측정 이벤트
+    function sendReadingStatement() {
+        const email = document.getElementById("studentEmail").value;
+        const space = document.getElementById("spaceType").value;
+        const dwellTimeSec = Math.round((Date.now() - startTime) / 1000); // 초 단위 시간 계산
+
+        const statement = {
+            "actor": {
+                "mbox": "mailto:" + email,
+                "name": email.split('@')[0]
+            },
+            "verb": {
+                "id": "http://adlnet.gov/expapi/verbs/completed",
+                "display": { "en-US": "completed" }
+            },
+            "object": {
+                "id": "http://example.edu/xapi/activities/l2-efl-reading-task-1",
+                "definition": {
+                    "name": { "en-US": "L2 EFL Reading Task" },
+                    "description": { "en-US": "Reading architectural text in EFL context" }
+                }
+            },
+            "result": {
+                "duration": "PT" + dwellTimeSec + "S" // ISO 8601 형식 (예: PT15S = 15초)
+            },
+            "context": {
+                "extensions": {
+                    "http://example.edu/xapi/ext/spatial-context": space
+                }
+            }
+        };
+
+        sendXAPI(statement, "status1");
+    }
+
+    // Task 2: 정의적 여과막/편안함 점수 제출 이벤트
+    function sendSurveyStatement() {
+        const email = document.getElementById("studentEmail").value;
+        const space = document.getElementById("spaceType").value;
+        const score = parseInt(document.getElementById("affectiveScore").value);
+
+        const statement = {
+            "actor": {
+                "mbox": "mailto:" + email
+            },
+            "verb": {
+                "id": "http://adlnet.gov/expapi/verbs/responded",
+                "display": { "en-US": "responded" }
+            },
+            "object": {
+                "id": "http://example.edu/xapi/activities/affective-filter-survey",
+                "definition": {
+                    "name": { "en-US": "Affective Filter Self-Report" }
+                }
+            },
+            "result": {
+                "score": { "raw": score, "min": 1, "max": 5 }
+            },
+            "context": {
+                "extensions": {
+                    "http://example.edu/xapi/ext/spatial-context": space
+                }
+            }
+        };
+
+        sendXAPI(statement, "status2");
+    }
+</script>
+
+</body>
+</html>
