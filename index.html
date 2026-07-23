@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>L2 Learning Task - Transitional Space Experiment</title>
+    <!-- xAPI 문장 생성을 도와주는 공식 라이브러리 불러오기 -->
+    <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/crypto-js.js"></script>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            max-width: 700px;
+            margin: 40px auto;
+            padding: 20px;
+            line-height: 1.6;
+            background: #f9f9f9;
+        }
+
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+
+        h2 {
+            color: #2c3e50;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+
+        .l2-text {
+            background: #eef2f7;
+            padding: 15px;
+            border-left: 5px solid #3498db;
+            font-size: 1.05em;
+            margin: 15px 0;
+        }
+
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1em;
+            margin-right: 5px;
+        }
+
+            button:hover {
+                background: #2980b9;
+            }
+
+            button.stop {
+                background: #e74c3c;
+            }
+
+                button.stop:hover {
+                    background: #c0392b;
+                }
+
+        select, input {
+            padding: 8px;
+            margin: 5px 0 15px 0;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .status {
+            color: #27ae60;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        .stt-box {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 6px;
+            min-height: 40px;
+            margin-top: 10px;
+            font-style: italic;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>1. Participant & Spatial Context Setup</h2>
+        <label>Student Email / ID:</label>
+        <input type="email" id="studentEmail" placeholder="student@snu.ac.kr" value="student01@snu.ac.kr">
+
+        <label>Current Space Condition (공간 조건 선택):</label>
+        <select id="spaceType">
+            <option value="Classroom">Classroom (통제 공간)</option>
+            <option value="Lounge">Lounge/Cafe (휴게 공간)</option>
+            <option value="Transitional_Alcove" selected>Transitional Space - Alcove (전이 공간)</option>
+        </select>
+    </div>
+
+    <div class="card">
+        <h2>2. L2 EFL Reading Task</h2>
+        <p>Read the following short passage carefully and click the button when finished.</p>
+
+        <div class="l2-text">
+            "Transitional spaces in architecture, such as corridors and alcoves, offer unique spatial affordances. In English as a Foreign Language (EFL) contexts, these informal in-between zones can significantly lower learners' affective filters, encouraging low-stakes interaction and spontaneous self-regulated learning."
+        </div>
+
+        <button onclick="sendReadingStatement()">I finished reading (읽기 완료)</button>
+        <div id="status1" class="status"></div>
+    </div>
+
+    <!-- ========================================================= -->
+    <!-- [새로 추가된 구역] 3. L2 Speaking Task (음성 녹음 및 STT) -->
+    <!-- ========================================================= -->
+    <div class="card">
+        <h2>3. L2 EFL Speaking Task (Audio & STT)</h2>
+        <p>Please speak your thoughts in English about the passage above. Click <b>'Start Recording'</b> when you begin, and <b>'Stop & Send'</b> when finished.</p>
+
+        <div>
+            <button id="startRecBtn" onclick="startRecording()">🎤 Start Recording (녹음 시작)</button>
+            <button id="stopRecBtn" onclick="stopRecording()" class="stop" disabled>⏹️ Stop & Send xAPI (녹음 종료 및 전송)</button>
+        </div>
+
+        <div style="margin-top: 15px;">
+            <label>Real-time Transcribed Text (실시간 STT 인식 결과):</label>
+            <div id="sttResult" class="stt-box">Speaking text will appear here...</div>
+        </div>
+
+        <div style="margin-top: 15px;">
+            <audio id="audioPlayer" controls style="width: 100%; display: none;"></audio>
+        </div>
+
+        <div id="statusSpeaking" class="status"></div>
+    </div>
+
+    <div class="card">
+        <h2>4. Self-Regulated Learning (SRL) Self-Report</h2>
+        <p>How comfortable did you feel reading in this space? (1: Very Anxious ~ 5: Very Comfortable)</p>
+        <select id="affectiveScore">
+            <option value="1">1 - Very High Affective Filter (불안함)</option>
+            <option value="2">2 - High</option>
+            <option value="3">3 - Moderate</option>
+            <option value="4" selected>4 - Low</option>
+            <option value="5">5 - Very Low Affective Filter (매우 편안함)</option>
+        </select>
+        <br>
+        <button onclick="sendSurveyStatement()">Submit Survey (설문 제출)</button>
+        <div id="status2" class="status"></div>
+    </div>
+
+    <script>
+        // -------------------------------------------------------------
+        // [설정 구역] Veracity LRS 계정 정보
+        // -------------------------------------------------------------
+        const LRS_ENDPOINT = "https://l2-spatial-study.lrs.io/xapi/";
+        const LRS_KEY = "150adff5-e211-4fb1-a2b1-47af48a75902";
+        const LRS_SECRET = "377989c4-4b5e-4b31-a553-15f6604e5d92";
+
+        let startTime = Date.now(); // 페이지 접속 시간 기록
+
+        // xAPI 전송 공통 함수
+        function sendXAPI(statement, statusElementId) {
+            const auth = "Basic " + btoa(LRS_KEY + ":" + LRS_SECRET);
+
+            fetch(LRS_ENDPOINT + "statements", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Experience-API-Version": "1.0.3",
+                    "Authorization": auth
+                },
+                body: JSON.stringify(statement)
+            })
+                .then(response => {
+                    if (response.ok) {
+                        document.getElementById(statusElementId).innerText = "✅ xAPI Statement successfully sent to LRS!";
+                    } else {
+                        document.getElementById(statusElementId).innerText = "❌ Failed to send (Check LRS Credentials).";
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    document.getElementById(statusElementId).innerText = "❌ Network Error.";
+                });
+        }
+
+        // Task 1: Reading Task
+        function sendReadingStatement() {
+            const email = document.getElementById("studentEmail").value;
+            const space = document.getElementById("spaceType").value;
+            const dwellTimeSec = Math.round((Date.now() - startTime) / 1000);
+
+            const statement = {
+                "actor": {
+                    "mbox": "mailto:" + email,
+                    "name": email.split('@')[0]
+                },
+                "verb": {
+                    "id": "http://adlnet.gov/expapi/verbs/completed",
+                    "display": { "en-US": "completed" }
+                },
+                "object": {
+                    "id": "http://example.edu/xapi/activities/l2-efl-reading-task-1",
+                    "definition": {
+                        "name": { "en-US": "L2 EFL Reading Task" },
+                        "description": { "en-US": "Reading architectural text in EFL context" }
+                    }
+                },
+                "result": {
+                    "duration": "PT" + dwellTimeSec + "S"
+                },
+                "context": {
+                    "extensions": {
+                        "http://example.edu/xapi/ext/spatial-context": space
+                    }
+                }
+            };
+
+            sendXAPI(statement, "status1");
+        }
+
+        // -------------------------------------------------------------
+        // [새로 추가된 구역] 녹음 & STT 및 xAPI 전송 로직
+        // -------------------------------------------------------------
+        let mediaRecorder;
+        let audioChunks = [];
+        let recognizedText = "";
+        let speakingStartTime;
+        let recognition;
+
+        // Web Speech API (STT) 초기화
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.lang = 'en-US'; // 영어 발화 인식
+            recognition.continuous = true;
+            recognition.interimResults = true;
+
+            recognition.onresult = (event) => {
+                let transcript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    transcript += event.results[i][0].transcript;
+                }
+                recognizedText = transcript;
+                document.getElementById("sttResult").innerText = recognizedText;
+            };
+        } else {
+            alert("이 브라우저는 음성 인식(STT)을 지원하지 않습니다. Chrome 브라우저 사용을 권장합니다.");
+        }
+
+        // 녹음 시작 함수
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                recognizedText = "";
+                document.getElementById("sttResult").innerText = "Listening...";
+                document.getElementById("statusSpeaking").innerText = "";
+
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.start();
+                if (recognition) recognition.start();
+
+                speakingStartTime = Date.now(); // 녹음 시작 시각
+
+                document.getElementById("startRecBtn").disabled = true;
+                document.getElementById("stopRecBtn").disabled = false;
+            } catch (err) {
+                alert("마이크 접근 권한이 필요합니다: " + err);
+            }
+        }
+
+        // 녹음 중지 및 xAPI 전송 함수
+        function stopRecording() {
+            if (!mediaRecorder) return;
+
+            mediaRecorder.stop();
+            if (recognition) recognition.stop();
+
+            document.getElementById("startRecBtn").disabled = false;
+            document.getElementById("stopRecBtn").disabled = true;
+
+            mediaRecorder.onstop = () => {
+                const speakingTimeSec = Math.round((Date.now() - speakingStartTime) / 1000);
+                const audioBlob = new Blob(audioChunks, { type: 'audio/mp3' });
+
+                // 녹음한 음성을 바로 들어볼 수 있도록 플레이어 연결
+                const audioUrl = URL.createObjectURL(audioBlob);
+                const audioPlayer = document.getElementById("audioPlayer");
+                audioPlayer.src = audioUrl;
+                audioPlayer.style.display = "block";
+
+                // xAPI Statement 생성 및 전송
+                const email = document.getElementById("studentEmail").value;
+                const space = document.getElementById("spaceType").value;
+
+                const statement = {
+                    "actor": {
+                        "mbox": "mailto:" + email,
+                        "name": email.split('@')[0]
+                    },
+                    "verb": {
+                        "id": "http://adlnet.gov/expapi/verbs/responded",
+                        "display": { "en-US": "responded with audio" }
+                    },
+                    "object": {
+                        "id": "http://example.edu/xapi/activities/l2-efl-speaking-task-1",
+                        "definition": {
+                            "name": { "en-US": "L2 EFL Speaking Task" },
+                            "description": { "en-US": "Spoken English response in spatial experiment" }
+                        }
+                    },
+                    "result": {
+                        "response": recognizedText || "(No text recognized)", // ★ STT로 인식된 발화 텍스트
+                        "duration": "PT" + speakingTimeSec + "S",            // ★ 발화 소요 시간 (초)
+                        "extensions": {
+                            "http://example.edu/xapi/ext/audio-blob-size": audioBlob.size // 파일 크기 정보
+                        }
+                    },
+                    "context": {
+                        "extensions": {
+                            "http://example.edu/xapi/ext/spatial-context": space
+                        }
+                    }
+                };
+
+                sendXAPI(statement, "statusSpeaking");
+            };
+        }
+
+        // Task 3: Survey Task
+        function sendSurveyStatement() {
+            const email = document.getElementById("studentEmail").value;
+            const space = document.getElementById("spaceType").value;
+            const score = parseInt(document.getElementById("affectiveScore").value);
+
+            const statement = {
+                "actor": {
+                    "mbox": "mailto:" + email
+                },
+                "verb": {
+                    "id": "http://adlnet.gov/expapi/verbs/responded",
+                    "display": { "en-US": "responded" }
+                },
+                "object": {
+                    "id": "http://example.edu/xapi/activities/affective-filter-survey",
+                    "definition": {
+                        "name": { "en-US": "Affective Filter Self-Report" }
+                    }
+                },
+                "result": {
+                    "score": { "raw": score, "min": 1, "max": 5 }
+                },
+                "context": {
+                    "extensions": {
+                        "http://example.edu/xapi/ext/spatial-context": space
+                    }
+                }
+            };
+
+            sendXAPI(statement, "status2");
+        }
+    </script>
+
+</body>
+</html>
